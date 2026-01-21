@@ -1,0 +1,125 @@
+#include <Arduino.h>
+
+#define A_1     32   
+#define A_2     25   
+#define b1      19   
+#define b2      18   
+#define PWM_PIN 27   
+#define EMERGENCIA  26   
+#define PWM_CH   0
+#define PWM_FREQ 20000
+#define PWM_RES  12
+
+volatile bool giroDerecha = false;   
+int pot = 0;                         
+int pwm = 0;                         
+bool emergenciaActiva = false;      
+
+void girarIzquierda();
+void girarDerecha();
+void detenerMotor();
+void giro_izq();
+void giro_der();
+void stop();                                           
+
+// ISR: botón derecha 
+void IRAM_ATTR isrDer() {
+  giroDerecha = true;
+}
+
+// ISR: botón izquierda 
+void IRAM_ATTR isrIzq() {
+  giroDerecha = false;
+}
+
+// ISR: botón emergencia (cambia estado ON/OFF)
+void IRAM_ATTR isrEmergencia() {
+  emergenciaActiva = !emergenciaActiva;  
+}
+
+void setup() {
+
+  pinMode(A_1, OUTPUT);
+  pinMode(A_2, OUTPUT);
+
+  pinMode(b1, INPUT_PULLDOWN);
+  pinMode(b2, INPUT_PULLDOWN);
+
+  // Boton de emergencia
+  pinMode(EMERGENCIA, INPUT_PULLUP); 
+  attachInterrupt(digitalPinToInterrupt(EMERGENCIA), isrEmergencia, FALLING);
+
+  // Configuración PWM
+  ledcSetup(PWM_CH, PWM_FREQ, PWM_RES);
+  ledcAttachPin(PWM_PIN, PWM_CH);
+
+  // Dirección inicial
+  girarIzquierda();
+
+  // Interrupciones en flanco ascendente
+  attachInterrupt(digitalPinToInterrupt(b1), isrDer, RISING);
+  attachInterrupt(digitalPinToInterrupt(b2), isrIzq, RISING);
+  Serial.begin(9600);
+  Serial.println("Sistema iniciado");
+}
+
+void loop() {
+  if (emergenciaActiva) {
+    detenerMotor();
+    Serial.println("Motor detenido");
+    delay(200);
+    return;   
+  }
+  pot = analogRead(0);   
+  giro_izq();
+
+ //RANGO DEL MOTOR
+  pwm = map(pot, 0, 4095, 0, 255);
+
+  //PWM
+  ledcWrite(PWM_CH, pwm);
+
+  Serial.print(pot);
+  Serial.print("-");
+  Serial.println(pwm);
+
+  if (giroDerecha) {
+    girarDerecha();
+  } else {
+    girarIzquierda();
+  }
+
+  delay(100);
+}
+
+void girarIzquierda() {
+  digitalWrite(A_1, HIGH);
+  digitalWrite(A_2, LOW);
+}
+
+void girarDerecha() {
+  digitalWrite(A_1, LOW);
+  digitalWrite(A_2, HIGH);
+}
+
+void detenerMotor() {
+  ledcWrite(PWM_CH, 0);
+  digitalWrite(A_1, LOW);
+  digitalWrite(A_2, LOW);
+}
+
+void giro_izq() {
+  digitalWrite(A_1, HIGH);
+  digitalWrite(A_2, LOW);
+}
+
+void giro_der() {
+  digitalWrite(A_2, HIGH);
+  digitalWrite(A_1, LOW);
+}
+
+void stop() {
+  ledcWrite(PWM_CH, 0);
+  digitalWrite(A_1, LOW);
+  digitalWrite(A_2, LOW);
+}
