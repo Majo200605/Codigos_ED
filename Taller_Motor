@@ -1,0 +1,123 @@
+#include <Arduino.h>
+
+// ===== L298N =====
+#define IN1      32
+#define IN2      25
+#define ENA_PIN  27
+
+// ===== Botones =====
+#define BTN_DER   19
+#define BTN_IZQ   18
+#define BTN_EMERG 26   // emergencia (INTERRUPCIÓN)
+
+// ===== Potenciómetro =====
+#define POT_PIN  34
+
+// ===== Variables =====
+volatile int direccion = 0;   
+volatile unsigned long tDer = 0, tIzq = 0;
+
+// ---- EMERGENCIA ----
+volatile bool emergenciaIRQ = false;     // solo bandera
+volatile unsigned long tEmergIRQ = 0;
+
+bool emergencia = false;                 // estado real
+
+int pot = 0;
+int duty = 0;
+
+// ===== ISR Dirección =====
+void IRAM_ATTR der() {
+  unsigned long t = micros();
+  if (t - tDer > 200000) {
+    direccion = 1;
+    tDer = t;
+  }
+}
+
+void IRAM_ATTR izq() {
+  unsigned long t = micros();
+  if (t - tIzq > 200000) {
+    direccion = 2;
+    tIzq = t;
+  }
+}
+
+// ===== ISR Emergencia (SOLO AVISA) =====
+void IRAM_ATTR emergenciaISR() {
+  unsigned long t = micros();
+  if (t - tEmergIRQ > 300000) {   // filtro rápido
+    emergenciaIRQ = true;
+    tEmergIRQ = t;
+  }
+}
+
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(ENA_PIN, OUTPUT);
+
+  pinMode(BTN_DER, INPUT_PULLUP);
+  pinMode(BTN_IZQ, INPUT_PULLUP);
+  pinMode(BTN_EMERG, INPUT_PULLUP);
+
+  attachInterrupt(digitalPinToInterrupt(BTN_DER), der, FALLING);
+  attachInterrupt(digitalPinToInterrupt(BTN_IZQ), izq, FALLING);
+  attachInterrupt(digitalPinToInterrupt(BTN_EMERG), emergenciaISR, FALLING);
+}
+
+void loop() {
+
+  // ===== VALIDACIÓN DE EMERGENCIA =====
+  if (emergenciaIRQ) {
+    emergenciaIRQ = false;
+
+    // confirmar que el botón sigue presionado
+    if (digitalRead(BTN_EMERG) == LOW) {
+      emergencia = !emergencia;   // toggle seguro
+      Serial.println("CAMBIO ESTADO EMERGENCIA");
+    }
+  }
+
+  // ===== PARO ACTIVO =====
+  if (emergencia) {
+    analogWrite(ENA_PIN, 0);
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, LOW);
+
+    Serial.println("PARO DE EMERGENCIA ACTIVO");
+    delay(50);
+    return;
+  }
+
+  // ===== Velocidad =====
+  pot = analogRead(POT_PIN);        // 0..4095
+  duty = map(pot, 0, 4095, 0, 255);
+
+  // ===== Dirección =====
+  if (direccion == 1) {
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
+  }
+  else if (direccion == 2) {
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, HIGH);
+  } 
+  else {
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, LOW);
+  }
+
+  analogWrite(ENA_PIN, duty);
+
+  Serial.print("PWM: ");
+  Serial.print(duty);
+  Serial.print(" | Dir: ");
+  Serial.print(direccion);
+  Serial.print(" | Emerg: ");
+  Serial.println(emergencia);
+
+  delay(20);
+}
